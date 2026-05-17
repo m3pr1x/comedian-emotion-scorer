@@ -1,0 +1,35 @@
+[
+  {
+    "model_name": "YOLOv8n",
+    "description": "Nano - ultra-rapide",
+    "training_time_formatted": "1.0h 2m",
+    "training_time_seconds": 3735.17,
+    "mAP50": 0.7761875064572914,
+    "mAP50_95": 0.7078047790381239,
+    "precision": 0.6814280293917307,
+    "recall": 0.7384466672880938,
+    "best_model_path": "runs/emotion_detection/YOLOv8n/weights/best.pt"
+  },
+  {
+    "model_name": "YOLOv8s",
+    "description": "Small - \u00e9quilibre vitesse/pr\u00e9cision",
+    "training_time_formatted": "1.7h 41m",
+    "training_time_seconds": 6056.1,
+    "mAP50": 0.7767124981294592,
+    "mAP50_95": 0.7132925481947151,
+    "precision": 0.6920060161543242,
+    "recall": 0.71538301528085,
+    "best_model_path": "runs/emotion_detection/YOLOv8s/weights/best.pt"
+  },
+  {
+    "model_name": "YOLOv8m",
+    "description": "Medium - meilleure pr\u00e9cision",
+    "training_time_formatted": "3.4h 27m",
+    "training_time_seconds": 12407.35,
+    "mAP50": 0.7834551296286169,
+    "mAP50_95": 0.7171602755003735,
+    "precision": 0.6605111259977836,
+    "recall": 0.7627480514540617,
+    "best_model_path": "runs/emotion_detection/YOLOv8m/weights/best.pt"
+  }
+]
