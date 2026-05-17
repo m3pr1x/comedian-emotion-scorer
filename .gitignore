@@ -317,3 +317,24 @@ http-client.private.env.json
 
 # Exclude logs directory
 logs/*
+
+# Dataset (trop lourd pour GitHub)
+emotion_scorer/Human-face-emotions-1/
+emotion_scorer/runs/
+emotion_scorer/*.zip
+emotion_scorer/yolov8*.pt
+
+# Clés API et fichiers sensibles
+emotion_scorer/.env
+.env
+
+# Modèles entraînés (binaires lourds)
+models/*.pt
+models/*.pth
+
+# Fichiers temporaires / brouillons
+Brouillon/
+.DS_Store
+
+# Projet HR chatbot (projet séparé, non lié à ce rendu)
+hr_chatbot/__pycache__/

@@ -1,0 +1,28 @@
+# Dépendances pour la détection d'émotions faciales
+# Installer avec: pip install -r requirements.txt
+
+# Framework de détection d'objets
+ultralytics>=8.0.0
+
+# Roboflow SDK pour télécharger le dataset
+roboflow>=1.1.0
+
+# Traitement d'images et vidéos
+opencv-python>=4.8.0
+
+# Calcul numérique
+numpy>=1.24.0
+
+# Visualisation
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Tableaux de données
+pandas>=2.0.0
+
+# Gestion des variables d'environnement
+python-dotenv>=1.0.0
+
+# Optionnel: accélération GPU (décommenter si CUDA disponible)
+# torch>=2.0.0
+# torchvision>=0.15.0

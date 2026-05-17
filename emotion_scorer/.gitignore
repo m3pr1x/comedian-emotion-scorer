@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.Python
+env/
+venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# Données sensibles
+.env
+# Ne pas pusher la clé API !
+
+# Dataset (trop lourd pour GitHub, utiliser Git LFS ou DVC)
+human-face-emotions-avush-1/
+*.zip
+dataset/
+
+# Modèles entraînés (optionnel - peuvent être gros)
+# runs/
+# *.pt
+
+# Résultats lourds
+*.mp4
+*.avi
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
