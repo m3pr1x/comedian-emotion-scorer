@@ -7,7 +7,7 @@ Détecte les émotions faciales du public en temps réel et attribue un score à
 ## Démo rapide
 
 ```bash
-git clone <url-du-repo>
+git clone https://github.com/m3pr1x/ml-poc-project.git
 cd ml-poc-project
 pip install -r requirements.txt
 python scripts/main.py
