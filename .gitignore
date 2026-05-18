@@ -328,8 +328,8 @@ emotion_scorer/yolov8*.pt
 emotion_scorer/.env
 .env
 
-# Modèles entraînés (binaires lourds)
-models/*.pt
+# Modèles entraînés — inclus dans le repo (< 100MB chacun)
+# models/*.pt
 models/*.pth
 
 # Fichiers temporaires / brouillons
