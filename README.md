@@ -1,238 +1,118 @@
-# ML Project Template
+# Comedian Emotion Scorer
 
-This repository is the base template that each student will fork and adapt for the final machine learning proof-of-concept project.
+Détecte les émotions faciales du public en temps réel et attribue un score à un humoriste.
 
-The template already defines the project structure and the main execution workflow. Your job as a student is to plug your own dataset loading logic, trained models, evaluation metrics, and Streamlit presentation into the fixed contracts described below.
+**Pipeline :** Caméra → YOLO (détection + classification) → Score pondéré [0–100%]
 
-## Repository Structure
-
-- `deliverables/`: markdown files containing all assignements
-- `deliverables/assignement1.md`: first assignement due (5 in total)
-- `data/`: raw and processed data files
-- `logs/`: log files generated during execution
-- `models/`: trained machine learning models saved to disk
-- `notebooks/`: Jupyter notebooks for analysis and experimentation
-- `plots/`: generated visualizations
-- `results/`: evaluation outputs, including model comparison tables
-- `scripts/`: executable project scripts
-- `scripts/main.py`: main entry point for evaluating models and launching the app
-- `src/`: project source code
-- `src/config.py`: project paths, model registry, and Streamlit configuration
-- `src/data.py`: student-implemented dataset loading function
-- `src/metrics.py`: student-implemented metric computation function
-- `src/app.py`: fixed Streamlit entry point that students must customize
-- `tests/`: optional tests
-- `.env`: environment variables if your project needs them
-
-## Expected Workflow
-
-When you run:
+## Démo rapide
 
 ```bash
-python scripts/main.py
-```
-
-the template will do the following:
-
-1. read the list of trained models from `src/config.py`,
-2. call your dataset loading function from `src/data.py`,
-3. load each serialized model from `models/`,
-4. run predictions on the test split,
-5. call your metric computation function from `src/metrics.py`,
-6. save the results to `results/model_metrics.csv`,
-7. print the metrics in the terminal,
-8. launch the Streamlit app on `localhost`.
-
-## What You Must Update
-
-### 1. Register your trained models in `src/config.py`
-
-Replace the example `MODELS` dictionary with your own trained models.
-
-Each entry must define at least:
-
-- `name`
-- `description`
-- `path`
-
-Example:
-
-```python
-MODELS = {
-    "log_reg": {
-        "name": "Logistic Regression",
-        "description": "Baseline classifier with standardized features.",
-        "path": MODELS_DIR / "log_reg.joblib",
-    },
-    "rf": {
-        "name": "Random Forest",
-        "description": "Tree ensemble tuned on the validation split.",
-        "path": MODELS_DIR / "random_forest.pkl",
-    },
-}
-```
-
-Supported model formats are:
-
-- `.joblib`
-- `.pkl`
-- `.pickle`
-
-Each saved object must expose a `.predict(X)` method.
-
-### 2. Implement the dataset loading function in `src/data.py`
-
-The file already exists and must keep this function name and signature:
-
-```python
-def load_dataset_split() -> tuple[Any, Any, Any, Any]:
-```
-
-It must return:
-
-```python
-(X_train, X_test, y_train, y_test)
-```
-
-Constraints:
-
-- `X_train` and `X_test` must be in a format accepted by every model in `MODELS`
-- `y_train` and `y_test` must contain the matching targets
-- `X_test` and `y_test` will be used by `scripts/main.py` for evaluation
-- Typical return types are `pandas.DataFrame`, `pandas.Series`, and/or `numpy.ndarray`
-
-Minimal example:
-
-```python
-import pandas as pd
-from sklearn.model_selection import train_test_split
-
-from config import DATA_DIR
-
-
-def load_dataset_split():
-    df = pd.read_csv(DATA_DIR / "processed_dataset.csv")
-    X = df.drop(columns=["target"])
-    y = df["target"]
-    return train_test_split(X, y, test_size=0.2, random_state=42)
-```
-
-### 3. Implement the metric computation function in `src/metrics.py`
-
-The file already exists and must keep this function name and signature:
-
-```python
-def compute_metrics(y_true: Any, y_pred: Any) -> dict[str, float]:
-```
-
-It must return a dictionary mapping metric names to numeric values.
-
-Example:
-
-```python
-from sklearn.metrics import accuracy_score, f1_score
-
-
-def compute_metrics(y_true, y_pred):
-    return {
-        "accuracy": accuracy_score(y_true, y_pred),
-        "f1": f1_score(y_true, y_pred, average="weighted"),
-    }
-```
-
-Constraints:
-
-- Use the same metric names for all evaluated models
-- Every metric value must be numeric and convertible to `float`
-- The returned dictionary is written directly to `results/model_metrics.csv`
-
-### 4. Customize the Streamlit application in `src/app.py`
-
-The file `src/app.py` is the fixed Streamlit entry point used by `scripts/main.py`.
-
-Keep this function name:
-
-```python
-def build_app() -> None:
-```
-
-You should update the placeholder app to present:
-
-- the business objective,
-- the dataset and key insights,
-- your visualizations,
-- model comparison results,
-- any prediction demo or interactive workflow relevant to your project.
-
-The template app already tries to display `results/model_metrics.csv` if it exists.
-
-## Recommended Student Workflow
-
-1. Fork this repository.
-2. Create and activate your virtual environment.
-3. Install dependencies:
-
-```bash
+git clone <url-du-repo>
+cd ml-poc-project
 pip install -r requirements.txt
-```
-
-The template also reads `project-repo/.env` with `python-dotenv`. By default it contains:
-
-```text
-PYTHONPATH=./src
-```
-
-This is used when `scripts/main.py` launches Streamlit so modules inside `src/` resolve as top-level imports such as `from config import ...` or `from app import build_app`.
-
-4. Add your data files to `data/`.
-5. Train and save your models into `models/`.
-6. Update `src/config.py`.
-7. Implement `src/data.py`.
-8. Implement `src/metrics.py`.
-9. Customize `src/app.py`.
-10. Run the full project:
-
-```bash
 python scripts/main.py
 ```
 
-## Output Produced by the Template
+L'app Streamlit s'ouvre sur **http://localhost:8501**.
 
-After a successful run, you should have:
+> Les modèles `.pt` ne sont pas inclus dans le repo (trop lourds). Voir la section **Modèles** ci-dessous.
 
-- printed metrics in the terminal,
-- a CSV file at `results/model_metrics.csv`,
-- a Streamlit app running locally, by default at:
+---
 
-```text
-http://localhost:8501
+## Structure du projet
+
+```
+ml-poc-project/
+├── src/
+│   ├── app.py          # App Streamlit (7 onglets)
+│   ├── config.py       # Chemins, registre des modèles, config Streamlit
+│   ├── data.py         # Chargement du dataset YOLO
+│   ├── metrics.py      # Calcul des métriques (mAP50, F1, accuracy...)
+│   └── model_io.py     # Wrapper YOLO sklearn-compatible
+├── scripts/
+│   └── main.py         # Point d'entrée unique : évaluation + lancement Streamlit
+├── models/             # Dossier pour les fichiers .pt (non versionnés)
+├── emotion_scorer/
+│   ├── download_dataset.py          # Télécharge le dataset Roboflow
+│   ├── kaggle_train_emotions.ipynb  # Entraînement YOLO sur Kaggle T4
+│   └── training_results.json        # Résultats d'entraînement Kaggle
+├── deliverables/       # Rendus académiques (assignment2.md, assignment3.md)
+└── requirements.txt
 ```
 
-## Common Errors
+---
 
-### `NotImplementedError` from `data`
+## Modèles
 
-You have not implemented `load_dataset_split()` yet.
+Les modèles entraînés sur le dataset **Human Face Emotions** (Roboflow) ne sont pas inclus dans le repo car trop lourds (6-50 MB).
 
-### `NotImplementedError` from `metrics`
+### Option A — Télécharger depuis Kaggle
 
-You have not implemented `compute_metrics()` yet.
+1. Va sur le notebook Kaggle `kaggle-train-emotions`
+2. Onglet **Output** → télécharge les fichiers `best.pt`
+3. Place-les dans `models/` en les renommant :
 
-### `FileNotFoundError` for a model path
+```
+models/
+├── yolov8n_emotions.pt   (~6 MB  - Nano)
+├── yolov8s_emotions.pt   (~22 MB - Small)
+└── yolov8m_emotions.pt   (~50 MB - Medium)
+```
 
-One of the model files declared in `src/config.py` does not exist in `models/`.
+### Option B — Re-entraîner en local
 
-### Model has no `predict` method
+```bash
+# 1. Télécharge le dataset (nécessite ROBOFLOW_API_KEY)
+export ROBOFLOW_API_KEY=ta_cle_api
+python emotion_scorer/download_dataset.py
 
-The object loaded from disk is not a trained model compatible with the template evaluation flow.
+# 2. Lance l'entraînement (~30 min sur GPU, ~3h sur CPU M2)
+python emotion_scorer/train_models.py
+```
 
-### Streamlit starts but shows only the placeholder page
+---
 
-You still need to customize `src/app.py` with your project content.
+## Dataset
 
-## Notes
+**Source :** Human Face Emotions — Roboflow  
+**9 400 images** annotées en format YOLOv8, réparties en **8 classes** :
 
-- Keep `scripts/main.py` as the main orchestration entry point.
-- Keep the function names and signatures in `src/data.py`, `src/metrics.py`, and `src/app.py` unchanged.
-- Save your trained models before running the template.
-- Use the same evaluation logic for all registered models so the comparison remains fair.
+`anger` · `content` · `disgust` · `fear` · `happy` · `neutral` · `sad` · `surprise`
+
+**Split :** 70% train · 20% validation · 10% test
+
+```bash
+export ROBOFLOW_API_KEY=ta_cle_api
+python emotion_scorer/download_dataset.py
+```
+
+---
+
+## Lancer l'app seule (sans évaluation des modèles)
+
+```bash
+cd ml-poc-project
+PYTHONPATH=src streamlit run src/app.py
+```
+
+---
+
+## Résultats d'entraînement (Kaggle T4)
+
+| Modèle  | mAP50  | Précision | Rappel | Temps |
+|---------|--------|-----------|--------|-------|
+| YOLOv8n | 0.7762 | 0.6814    | 0.7384 | 1h02  |
+| YOLOv8s | 0.7767 | 0.6920    | 0.7154 | 1h41  |
+| YOLOv8m | 0.7835 | 0.6605    | 0.7627 | 3h27  |
+
+---
+
+## Variables d'environnement
+
+Crée un fichier `.env` à la racine du projet si besoin :
+
+```env
+ROBOFLOW_API_KEY=ta_cle_api
+```
+
+Le `.env` est exclu du repo par `.gitignore`.

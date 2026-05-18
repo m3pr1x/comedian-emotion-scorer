@@ -19,7 +19,6 @@ from config import (
     EMOTION_WEIGHTS,
     MODEL_METRICS_FILE,
     MODELS,
-    MODELS_DIR,
 )
 
 
@@ -261,24 +260,131 @@ def _tab_results() -> None:
         best_row = df.loc[df["f1_macro"].idxmax()] if "f1_macro" in df.columns else df.iloc[0]
         st.success(f"🏆 Meilleur modèle : **{best_row.get('model_name', best_row['model_key'])}**")
     else:
-        st.info(
-            "Les résultats ne sont pas encore disponibles.  \n"
-            "Lance `python scripts/main.py` une fois les modèles `.pt` placés dans `models/` "
-            "pour générer `results/model_metrics.csv`."
-        )
-        # Tableau de résultats attendus (estimations benchmark)
-        st.subheader("Performances attendues (estimations)")
-        expected = pd.DataFrame([
-            {"Modèle": "YOLOv8n", "mAP50 (attendu)": "~0.65", "Inférence": "~2 ms/img",  "Taille": "6 MB"},
-            {"Modèle": "YOLOv8s", "mAP50 (attendu)": "~0.72", "Inférence": "~4 ms/img",  "Taille": "22 MB"},
-            {"Modèle": "YOLOv8m", "mAP50 (attendu)": "~0.76", "Inférence": "~8 ms/img",  "Taille": "52 MB"},
-        ])
-        st.dataframe(expected, use_container_width=True, hide_index=True)
+        import json
+        training_json = Path(__file__).parent.parent / "emotion_scorer" / "training_results.json"
+        if training_json.exists():
+            with open(training_json) as f:
+                results = json.load(f)
+
+            st.subheader("Résultats d'entraînement Kaggle (GPU T4)")
+
+            df_train = pd.DataFrame([{
+                "Modèle":       r["model_name"],
+                "Description":  r["description"],
+                "mAP50":        round(r["mAP50"], 4),
+                "mAP50-95":     round(r["mAP50_95"], 4),
+                "Précision":    round(r["precision"], 4),
+                "Rappel":       round(r["recall"], 4),
+                "Temps entraîn.": r["training_time_formatted"],
+            } for r in results])
+
+            st.dataframe(df_train, use_container_width=True, hide_index=True)
+
+            # Graphique comparatif
+            fig, ax = plt.subplots(figsize=(10, 4))
+            metrics  = ["mAP50", "mAP50-95", "Précision", "Rappel"]
+            x = np.arange(len(df_train))
+            width = 0.8 / len(metrics)
+            for i, metric in enumerate(metrics):
+                ax.bar(x + i * width, df_train[metric], width, label=metric, alpha=0.85)
+            ax.set_xticks(x + width * (len(metrics) - 1) / 2)
+            ax.set_xticklabels(df_train["Modèle"])
+            ax.set_ylim(0, 1.0)
+            ax.legend(loc="lower right")
+            ax.set_title("Comparaison des métriques — entraînement Kaggle T4")
+            ax.grid(axis="y", alpha=0.3)
+            fig.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+            best = max(results, key=lambda r: r["mAP50"])
+            st.success(f"🏆 Meilleur modèle : **{best['model_name']}** — mAP50 = {best['mAP50']:.4f}")
+        else:
+            st.info(
+                "Lance `python scripts/main.py` une fois les modèles `.pt` placés dans `models/` "
+                "pour générer `results/model_metrics.csv`."
+            )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Onglet 5 — Démo
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _infer_crowd(model, img_path: str, conf: float) -> list[dict]:
+    """Pipeline 2 étapes : détecteur de visages OpenCV → crop → YOLO émotion sur chaque visage.
+    Retourne une liste de dicts avec emotion, conf et bbox (x1,y1,x2,y2) pour l'annotation."""
+    import cv2, tempfile, os
+
+    img     = cv2.imread(img_path)
+    h, w    = img.shape[:2]
+    gray    = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray    = cv2.equalizeHist(gray)
+
+    detector = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+    min_face = max(40, min(h, w) // 12)
+    faces = detector.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=7, minSize=(min_face, min_face))
+
+    if len(faces) == 0:
+        return []
+
+    detections = []
+    model_names = None
+
+    for (fx, fy, fw, fh) in faces:
+        pad_x = int(fw * 0.20)
+        pad_y = int(fh * 0.20)
+        x1 = max(0, fx - pad_x)
+        y1 = max(0, fy - pad_y)
+        x2 = min(w, fx + fw + pad_x)
+        y2 = min(h, fy + fh + pad_y)
+
+        crop = img[y1:y2, x1:x2]
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as t:
+            cv2.imwrite(t.name, crop)
+            crop_path = t.name
+
+        result = model.model(crop_path, conf=conf, verbose=False)[0]
+        os.unlink(crop_path)
+
+        if model_names is None:
+            model_names = result.names
+
+        if result.boxes and len(result.boxes) > 0:
+            best   = max(result.boxes, key=lambda b: float(b.conf[0]))
+            cls_id = int(best.cls[0])
+            detections.append({
+                "emotion": model_names.get(cls_id, "unknown"),
+                "conf":    float(best.conf[0]),
+                "bbox":    (fx, fy, fx + fw, fy + fh),
+            })
+
+    return detections
+
+
+def _draw_detections(img_path: str, detections: list[dict]) -> str:
+    """Dessine les bounding boxes et labels sur l'image, retourne le chemin vers l'image annotée."""
+    import cv2, tempfile
+
+    img = cv2.imread(img_path)
+    for det in detections:
+        emotion  = det["emotion"]
+        conf_val = det["conf"]
+        x1, y1, x2, y2 = det["bbox"]
+        r, g, b  = EMOTION_COLORS.get(emotion, (128, 128, 128))
+        color_bgr = (b, g, r)
+
+        cv2.rectangle(img, (x1, y1), (x2, y2), color_bgr, 2)
+        label = f"{emotion} {conf_val:.0%}"
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+        cv2.rectangle(img, (x1, y1 - th - 8), (x1 + tw + 6, y1), color_bgr, -1)
+        cv2.putText(img, label, (x1 + 3, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as t:
+        cv2.imwrite(t.name, img)
+        return t.name
+
 
 def _tab_demo() -> None:
     st.header("🎯 Démo — Analyse d'Émotion")
@@ -299,18 +405,28 @@ def _tab_demo() -> None:
         )
         return
 
-    model_key = st.selectbox(
-        "Modèle",
-        options=list(available.keys()),
-        format_func=lambda k: available[k]["name"],
-    )
-    conf = st.slider("Seuil de confiance", 0.1, 0.9, 0.35, 0.05)
+    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+    with col_s1:
+        model_key = st.selectbox(
+            "Modèle",
+            options=list(available.keys()),
+            format_func=lambda k: available[k]["name"],
+            index=min(2, len(available) - 1),
+        )
+    with col_s2:
+        conf = st.slider("Seuil de confiance", 0.1, 0.9, 0.25, 0.05,
+                         help="Baisse ce seuil si aucun visage n'est détecté")
+    with col_s3:
+        iou = st.slider("Seuil IoU (NMS)", 0.1, 0.9, 0.45, 0.05,
+                        help="Baisse pour supprimer les détections en double")
+    with col_s4:
+        mode_foule = st.toggle("Mode Foule 👥", value=False,
+                               help="Détecte chaque visage individuellement via OpenCV puis classifie l'émotion — idéal pour les groupes")
 
     uploaded = st.file_uploader("Charge une image (JPG/PNG)", type=["jpg", "jpeg", "png"])
 
     if uploaded:
         import tempfile
-        from model_io import load_model
 
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp.write(uploaded.read())
@@ -325,20 +441,34 @@ def _tab_demo() -> None:
                 try:
                     from model_io import YOLOEmotionClassifier
                     model = YOLOEmotionClassifier(Path(available[model_key]["path"]), conf=conf)
-                    result = model.model(tmp_path, conf=conf, verbose=False)[0]
-                    boxes  = result.boxes
 
-                    if boxes is None or len(boxes) == 0:
-                        st.warning("Aucun visage détecté. Essaie avec une autre image ou baisse le seuil.")
+                    if mode_foule:
+                        detections = _infer_crowd(model, tmp_path, conf)
                     else:
-                        st.success(f"{len(boxes)} visage(s) détecté(s)")
-                        for i, box in enumerate(boxes):
-                            cls_id   = int(box.cls[0])
-                            emotion  = EMOTION_CLASSES[cls_id]
-                            conf_val = float(box.conf[0])
-                            weight   = EMOTION_WEIGHTS[emotion]
+                        result = model.model(tmp_path, conf=conf, iou=iou, verbose=False)[0]
+                        model_names = result.names
+                        detections = []
+                        if result.boxes:
+                            for box in result.boxes:
+                                cls_id = int(box.cls[0])
+                                detections.append({
+                                    "emotion": model_names.get(cls_id, "unknown"),
+                                    "conf": float(box.conf[0]),
+                                })
+
+                    if not detections:
+                        st.warning("Aucun visage détecté. Essaie de baisser le seuil ou active le Mode Foule.")
+                    else:
+                        st.success(f"{len(detections)} visage(s) détecté(s)")
+                        detected_emotions = []
+                        for i, det in enumerate(detections):
+                            emotion  = det["emotion"]
+                            conf_val = det["conf"]
+                            weight   = EMOTION_WEIGHTS.get(emotion, 0.0)
                             score    = _score_to_pct(weight)
-                            r, g, b  = EMOTION_COLORS[emotion]
+                            color    = EMOTION_COLORS.get(emotion, (128, 128, 128))
+                            r, g, b  = color
+                            detected_emotions.append(emotion)
                             st.markdown(
                                 f"<div style='border-left:4px solid rgb({r},{g},{b});padding:8px;margin:4px 0'>"
                                 f"<b>Visage {i+1}</b> — {emotion.upper()} "
@@ -347,25 +477,11 @@ def _tab_demo() -> None:
                                 unsafe_allow_html=True,
                             )
 
-                        # Score global si plusieurs visages
-                        if len(boxes) > 1:
-                            emotions = [EMOTION_CLASSES[int(b.cls[0])] for b in boxes]
-                            scores   = [_score_to_pct(EMOTION_WEIGHTS[e]) for e in emotions]
-                            global_s = float(np.mean(scores))
-                            st.metric("Score global de cette frame", f"{global_s:.1f}%")
+                        scores   = [_score_to_pct(EMOTION_WEIGHTS.get(e, 0.0)) for e in detected_emotions]
+                        global_s = float(np.mean(scores))
+                        st.metric("Score global de cette frame", f"{global_s:.1f}%")
                 except Exception as e:
                     st.error(f"Erreur lors de l'inférence : {e}")
-
-    st.divider()
-    st.subheader("Tester en temps réel (webcam)")
-    best = next(iter(available.values())) if available else None
-    if best:
-        st.code(
-            f"python emotion_scorer/predict_emotions.py \\\n"
-            f"  --model {Path(best['path']).relative_to(Path(best['path']).parent.parent)} \\\n"
-            f"  --source 0",
-            language="bash",
-        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -374,7 +490,6 @@ def _tab_demo() -> None:
 
 def _tab_score() -> None:
     import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
 
     st.header("🎤 Simulateur de Score Humoriste")
     st.markdown(
@@ -386,9 +501,7 @@ def _tab_score() -> None:
     with col1:
         st.subheader("Distribution du public")
         sliders = {}
-        remaining = 100
-        for i, emotion in enumerate(EMOTION_CLASSES):
-            max_val = max(0, remaining) if i < len(EMOTION_CLASSES) - 1 else remaining
+        for emotion in EMOTION_CLASSES:
             val = st.slider(
                 emotion,
                 0, 100,
@@ -459,6 +572,170 @@ def _tab_score() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Onglet 6 — Caméra Live
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _tab_camera() -> None:
+    import cv2
+    import av
+    from streamlit_webrtc import webrtc_streamer, WebRtcMode
+
+    st.header("📷 Caméra Live — Détection en Temps Réel")
+
+    available = _available_models()
+    if not available:
+        st.warning("Aucun modèle disponible. Place les fichiers `.pt` dans `models/`.")
+        return
+
+    col1, col2 = st.columns(2)
+    with col1:
+        model_key = st.selectbox(
+            "Modèle",
+            options=list(available.keys()),
+            format_func=lambda k: available[k]["name"],
+            index=min(2, len(available) - 1),
+            key="cam_model",
+        )
+    with col2:
+        cam_conf = st.slider("Seuil de confiance", 0.1, 0.9, 0.25, 0.05, key="cam_conf")
+
+    model_path = str(available[model_key]["path"])
+
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+    # Couleurs BGR pour OpenCV
+    COLORS_BGR = {e: (b, g, r) for e, (r, g, b) in EMOTION_COLORS.items()}
+
+    class EmotionVideoProcessor:
+        def __init__(self):
+            from ultralytics import YOLO
+            self.model = YOLO(model_path)
+
+        def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
+            img  = frame.to_ndarray(format="bgr24")
+            h, w = img.shape[:2]
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            gray = cv2.equalizeHist(gray)
+
+            min_face = max(40, min(h, w) // 12)
+            faces = face_cascade.detectMultiScale(
+                gray, scaleFactor=1.05, minNeighbors=7, minSize=(min_face, min_face)
+            )
+
+            import tempfile, os
+            overlay = []
+
+            for (fx, fy, fw, fh) in faces:
+                pad_x = int(fw * 0.20)
+                pad_y = int(fh * 0.20)
+                x1 = max(0, fx - pad_x)
+                y1 = max(0, fy - pad_y)
+                x2 = min(w, fx + fw + pad_x)
+                y2 = min(h, fy + fh + pad_y)
+                crop = img[y1:y2, x1:x2]
+
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as t:
+                    cv2.imwrite(t.name, crop)
+                    crop_path = t.name
+
+                result = self.model(crop_path, conf=cam_conf, verbose=False)[0]
+                os.unlink(crop_path)
+
+                emotion, conf_val = "unknown", 0.0
+                if result.boxes and len(result.boxes) > 0:
+                    best   = max(result.boxes, key=lambda b: float(b.conf[0]))
+                    cls_id = int(best.cls[0])
+                    emotion   = result.names.get(cls_id, "unknown")
+                    conf_val  = float(best.conf[0])
+
+                overlay.append((fx, fy, fx + fw, fy + fh, emotion, conf_val))
+
+            # Dessine les rectangles et labels sur l'image
+            for (bx1, by1, bx2, by2, emotion, conf_val) in overlay:
+                color = COLORS_BGR.get(emotion, (128, 128, 128))
+                cv2.rectangle(img, (bx1, by1), (bx2, by2), color, 2)
+                label = f"{emotion} {conf_val:.0%}"
+                (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+                cv2.rectangle(img, (bx1, by1 - th - 6), (bx1 + tw + 4, by1), color, -1)
+                cv2.putText(img, label, (bx1 + 2, by1 - 3),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+
+            # Score global de la frame
+            if overlay:
+                emotions = [e for *_, e, _ in overlay]
+                raw = sum(EMOTION_WEIGHTS.get(e, 0) for e in emotions) / len(emotions)
+                pct = _score_to_pct(raw)
+                score_label = f"Score: {pct:.0f}%"
+                cv2.putText(img, score_label, (10, 35),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 255, 255), 2)
+                cv2.putText(img, score_label, (10, 35),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 200, 100), 1)
+
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
+
+    # ── Mode Flux Temps Réel ──────────────────────────────────────────────────
+    st.subheader("🎥 Flux temps réel")
+    st.info("Clique sur **START** pour activer la caméra. Les émotions s'affichent en temps réel avec le score de la frame.")
+
+    webrtc_streamer(
+        key="emotion-live",
+        mode=WebRtcMode.SENDRECV,
+        video_processor_factory=EmotionVideoProcessor,
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True,
+    )
+
+    # ── Mode Snapshot ─────────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("📸 Snapshot — Prendre une photo")
+
+    snapshot = st.camera_input("Prends une photo avec ta webcam")
+
+    if snapshot:
+        import tempfile
+        from model_io import YOLOEmotionClassifier
+
+        img_bytes = snapshot.getvalue()
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(img_bytes)
+            tmp_path = tmp.name
+
+        with st.spinner("Analyse en cours..."):
+            model = YOLOEmotionClassifier(Path(available[model_key]["path"]), conf=cam_conf)
+            detections = _infer_crowd(model, tmp_path, cam_conf)
+
+        if not detections:
+            st.warning("Aucun visage détecté. Essaie avec une meilleure luminosité ou baisse le seuil.")
+        else:
+            col_snap, col_info = st.columns([1, 1])
+            annotated_path = _draw_detections(tmp_path, detections)
+
+            with col_snap:
+                st.image(annotated_path, caption=f"{len(detections)} visage(s) détecté(s)", use_container_width=True)
+
+            with col_info:
+                detected_emotions = []
+                for i, det in enumerate(detections):
+                    emotion  = det["emotion"]
+                    conf_val = det["conf"]
+                    weight   = EMOTION_WEIGHTS.get(emotion, 0.0)
+                    score    = _score_to_pct(weight)
+                    color    = EMOTION_COLORS.get(emotion, (128, 128, 128))
+                    r, g, b  = color
+                    detected_emotions.append(emotion)
+                    st.markdown(
+                        f"<div style='border-left:4px solid rgb({r},{g},{b});padding:8px;margin:4px 0'>"
+                        f"<b>Visage {i+1}</b> — {emotion.upper()} ({conf_val:.0%})<br>"
+                        f"Score : <b>{score:.0f}%</b></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                scores   = [_score_to_pct(EMOTION_WEIGHTS.get(e, 0.0)) for e in detected_emotions]
+                global_s = float(np.mean(scores))
+                st.metric("Score global de cette frame", f"{global_s:.1f}%")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Point d'entrée
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -469,12 +746,13 @@ def build_app() -> None:
         layout="wide",
     )
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "🏠 Présentation",
         "📊 Dataset",
         "🤖 Modèles",
         "📈 Résultats",
         "🎯 Démo",
+        "📷 Caméra Live",
         "🎤 Score Live",
     ])
 
@@ -483,7 +761,8 @@ def build_app() -> None:
     with tab3: _tab_models()
     with tab4: _tab_results()
     with tab5: _tab_demo()
-    with tab6: _tab_score()
+    with tab6: _tab_camera()
+    with tab7: _tab_score()
 
 
 if __name__ == "__main__":

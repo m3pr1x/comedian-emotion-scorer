@@ -141,28 +141,26 @@ def main() -> None:
     _validate_app_entrypoint()
     _validate_models_config()
 
+    # Évaluation optionnelle — ignorée si le dataset n'est pas téléchargé
+    dataset_ok = False
     try:
         _, X_test, _, y_test = _load_dataset()
-    except NotImplementedError as exc:
-        raise NotImplementedError(
-            "Dataset loading is still a template placeholder. "
-            "Implement data.load_dataset_split()."
-        ) from exc
+        dataset_ok = True
+    except Exception as exc:
+        print(f"[INFO] Dataset non disponible, évaluation ignorée : {exc}")
+        print("[INFO] Pour évaluer les modèles, lance d'abord :")
+        print("       python emotion_scorer/download_dataset.py")
 
-    try:
-        metrics_rows = _evaluate_models(X_test, y_test)
-    except NotImplementedError as exc:
-        raise NotImplementedError(
-            "Metric computation is still a template placeholder. "
-            "Implement metrics.compute_metrics()."
-        ) from exc
+    if dataset_ok:
+        try:
+            metrics_rows = _evaluate_models(X_test, y_test)
+            metrics_df = write_metrics(metrics_rows)
+            print("Evaluation complete. Métriques sauvegardées dans results/model_metrics.csv")
+            print(metrics_df.to_string(index=False))
+        except Exception as exc:
+            print(f"[INFO] Evaluation ignorée : {exc}")
 
-    metrics_df = write_metrics(metrics_rows)
-
-    print("Model evaluation completed. Metrics saved to results/model_metrics.csv")
-    print(metrics_df.to_string(index=False))
-    print(f"\nLaunching Streamlit on http://{STREAMLIT_HOST}:{STREAMLIT_PORT} ...")
-
+    print(f"\nLancement de Streamlit sur http://{STREAMLIT_HOST}:{STREAMLIT_PORT} ...")
     _launch_streamlit()
 
 
