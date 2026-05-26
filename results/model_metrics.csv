@@ -1,0 +1,4 @@
+model_key,model_name,model_path,accuracy,f1_macro,f1_weighted,precision_macro,recall_macro,detection_rate
+yolov8n,YOLOv8n,/Users/louisdiallo-dou/Desktop/MLPOC/ml-poc-project/models/yolov8n_emotions.pt,0.6862326574172892,0.6882531162467818,0.688026168863241,0.6950080713804319,0.687903305985427,0.9957492029755579
+yolov8s,YOLOv8s,/Users/louisdiallo-dou/Desktop/MLPOC/ml-poc-project/models/yolov8s_emotions.pt,0.6837606837606838,0.68644573102954,0.6859607288737207,0.6950750798093805,0.685766355657251,0.9946865037194474
+yolov8m,YOLOv8m,/Users/louisdiallo-dou/Desktop/MLPOC/ml-poc-project/models/yolov8m_emotions.pt,0.6840981856990395,0.6865148903371392,0.6856639072225179,0.6917582046100885,0.685982367857849,0.9957492029755579
